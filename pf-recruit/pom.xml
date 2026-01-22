@@ -36,10 +36,12 @@
             <version>${sentinel.version}</version>
         </dependency>
         <dependency>
-            <groupId>mysql</groupId>
-            <artifactId>mysql-connector-java</artifactId>
-            <scope>runtime</scope>
+        <groupId>mysql</groupId>
+        <artifactId>mysql-connector-java</artifactId>
+        <version>5.1.49</version>
+        <scope>runtime</scope>
         </dependency>
+
         <!-- lightmq -->
         <dependency>
             <groupId>com.stalary</groupId>

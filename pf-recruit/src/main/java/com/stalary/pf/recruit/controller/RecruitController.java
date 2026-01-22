@@ -1,5 +1,6 @@
 package com.stalary.pf.recruit.controller;
 
+import com.stalary.pf.recruit.client.UserRecruitIndexClient;
 import com.stalary.pf.recruit.data.dto.SendResume;
 import com.stalary.pf.recruit.data.entity.RecruitEntity;
 import com.stalary.pf.recruit.data.vo.ResponseMessage;
@@ -10,12 +11,6 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
-
-/**
- * RecruitController
- *
-
- */
 
 /**
  * @model RecruitController
@@ -31,15 +26,62 @@ public class RecruitController {
     @Resource
     private RecruitService recruitService;
 
+    @Resource
+    private UserRecruitIndexClient userRecruitIndexClient;
+
     /**
      * @method add 添加和修改招聘信息
      * @param recruit 招聘信息对象
      * @return RecruitEntity 招聘信息对象
      **/
     @PostMapping
-    public ResponseMessage add(
-            @RequestBody RecruitEntity recruit) {
+    public ResponseMessage add(@RequestBody RecruitEntity recruit) {
+
+        // Se è un update e cambia HR, dobbiamo gestire rimozione/aggiunta indice
+        Long oldHrId = null;
+        Long recruitIdBeforeSave = null;
+
+        try {
+            recruitIdBeforeSave = recruit.getId(); // BaseEntity di solito espone getId()
+        } catch (Exception ignored) {}
+
+        if (recruitIdBeforeSave != null) {
+            try {
+                RecruitEntity old = recruitService.getRecruitById(recruitIdBeforeSave);
+                if (old != null) {
+                    oldHrId = old.getHrId();
+                }
+            } catch (Exception e) {
+                log.warn("Unable to read old recruit before update. id={}", recruitIdBeforeSave, e);
+            }
+        }
+
         RecruitEntity saveRecruit = recruitService.saveRecruit(recruit);
+
+        // Sync indice verso pf-user (add)
+        try {
+            if (saveRecruit != null && saveRecruit.getId() != null && saveRecruit.getHrId() != null) {
+
+                // Se hrId è cambiato, rimuovi dal vecchio HR
+                if (oldHrId != null && !oldHrId.equals(saveRecruit.getHrId())) {
+                    try {
+                        userRecruitIndexClient.remove(oldHrId, saveRecruit.getId());
+                    } catch (Exception e) {
+                        log.warn("Failed to sync recruit index to pf-user (remove old HR). oldHrId={}, recruitId={}",
+                                oldHrId, saveRecruit.getId(), e);
+                    }
+                }
+
+                // Aggiungi all'HR corrente (vale sia per create che update)
+                userRecruitIndexClient.add(saveRecruit.getHrId(), saveRecruit.getId());
+            }
+        } catch (Exception e) {
+            log.warn("Failed to sync recruit index to pf-user (add). hrId={}, recruitId={}",
+                    (saveRecruit != null ? saveRecruit.getHrId() : null),
+                    (saveRecruit != null ? saveRecruit.getId() : null),
+                    e);
+        }
+
         return ResponseMessage.successMessage(saveRecruit);
     }
 
@@ -48,9 +90,28 @@ public class RecruitController {
      * @param id 招聘信息id
      **/
     @DeleteMapping
-    public ResponseMessage delete(
-            @RequestParam Long id) {
+    public ResponseMessage delete(@RequestParam Long id) {
+
+        // Leggi prima di cancellare per ottenere hrId
+        RecruitEntity existing = null;
+        try {
+            existing = recruitService.getRecruitById(id);
+        } catch (Exception e) {
+            log.warn("Unable to read recruit before delete. id={}", id, e);
+        }
+
         recruitService.deleteById(id);
+
+        // Sync indice verso pf-user (remove)
+        if (existing != null && existing.getHrId() != null) {
+            try {
+                userRecruitIndexClient.remove(existing.getHrId(), id);
+            } catch (Exception e) {
+                log.warn("Failed to sync recruit index to pf-user (remove). hrId={}, recruitId={}",
+                        existing.getHrId(), id, e);
+            }
+        }
+
         return ResponseMessage.successMessage();
     }
 
@@ -85,8 +146,7 @@ public class RecruitController {
     }
 
     @GetMapping("/list")
-    public ResponseMessage recruitList(
-            @RequestParam Long userId) {
+    public ResponseMessage recruitList(@RequestParam Long userId) {
         return ResponseMessage.successMessage(recruitService.getRecruitByUserId(userId));
     }
 
@@ -96,8 +156,7 @@ public class RecruitController {
      * @return RecruitAndHrAndCompany 招聘信息
      **/
     @GetMapping("/{id}")
-    public ResponseMessage getInfo(
-            @PathVariable("id") Long id) {
+    public ResponseMessage getInfo(@PathVariable("id") Long id) {
         return ResponseMessage.successMessage(recruitService.getRecruitInfo(id));
     }
 
@@ -106,27 +165,17 @@ public class RecruitController {
      * @return RecruitEntity 招聘信息
      **/
     @GetMapping("/hr")
-    public ResponseMessage getHrInfo(
-            HttpServletRequest request) {
+    public ResponseMessage getHrInfo(HttpServletRequest request) {
         return ResponseMessage.successMessage(recruitService.getRecruitByUserId(RecruitUtil.getUserId(request)));
     }
 
-    /**
-     * 投递简历的步骤
-     * 1 投递简历，在redis中构成投递表
-     * 2 向hr发送简历接收通知(站内信，邮件)
-     * 3 向投递者发送简历投递成功的通知
-     * 4 向hr和投递者push更新后的未读通知数量
-     *
-     */
     /**
      * @method postResume 投递简历
      * @param sendResume 投递简历对象
      **/
     @PostMapping("/resume")
-    public ResponseMessage postResume(
-            HttpServletRequest request,
-            @RequestBody SendResume sendResume) {
+    public ResponseMessage postResume(HttpServletRequest request,
+                                     @RequestBody SendResume sendResume) {
         log.info("sendResume" + sendResume);
         recruitService.postResume(RecruitUtil.getUserId(request), sendResume.getRecruitId(), sendResume.getTitle());
         return ResponseMessage.successMessage("投递成功");
@@ -137,8 +186,7 @@ public class RecruitController {
      * @return RecommendCandidate 候选人列表
      **/
     @GetMapping("/recommend/candidate")
-    public ResponseMessage recommendCandidate(
-            HttpServletRequest request) {
+    public ResponseMessage recommendCandidate(HttpServletRequest request) {
         Long userId = RecruitUtil.getUserId(request);
         return ResponseMessage.successMessage(recruitService.getRecommendCandidate(userId));
     }
@@ -148,8 +196,7 @@ public class RecruitController {
      * @return RecommendRecruit 职位列表
      **/
     @GetMapping("/recommend/job")
-    public ResponseMessage recommendJob(
-            HttpServletRequest request) {
+    public ResponseMessage recommendJob(HttpServletRequest request) {
         Long userId = RecruitUtil.getUserId(request);
         return ResponseMessage.successMessage(recruitService.getRecommendJob(userId));
     }

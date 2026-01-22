@@ -6,12 +6,10 @@
 package com.stalary.pf.user.service;
 
 import com.alibaba.fastjson.JSONObject;
-import com.stalary.pf.user.client.RecruitClient;
 import com.stalary.pf.user.data.constant.Constant;
 import com.stalary.pf.user.data.constant.RedisKeys;
 import com.stalary.pf.user.data.dto.CompanyAndJob;
 import com.stalary.pf.user.data.dto.RecommendUser;
-import com.stalary.pf.user.data.dto.Recruit;
 import com.stalary.pf.user.data.dto.UploadAvatar;
 import com.stalary.pf.user.data.entity.UserEs;
 import com.stalary.pf.user.data.entity.UserInfoEntity;
@@ -31,6 +29,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * UserInfoService
@@ -49,9 +48,6 @@ public class UserInfoService {
 
     @Resource(name = "stringRedisTemplate")
     private StringRedisTemplate redis;
-
-    @Resource
-    private RecruitClient recruitClient;
 
     public boolean uploadAvatar(UploadAvatar uploadAvatar) {
         UserInfoEntity entity = repo.findByUserId(uploadAvatar.getUserId());
@@ -96,25 +92,38 @@ public class UserInfoService {
 
     /**
      * 获取收到的简历列表
-     **/
+     *
+     * Refactor (MARS Circular Dependency fix):
+     * - Prima: pf-user chiamava pf-recruit per ottenere la lista dei recruit dell'HR.
+     * - Ora: pf-user legge i recruitId da Redis Set "HR_RECRUIT_IDS:<hrId>".
+     */
     public ReceiveInfo getReceiveList() {
         HashOperations<String, String, String> redisHash = redis.opsForHash();
-        // 多个岗位需要叠加
-        Long userId = UserHolder.get().getId();
-        List<Recruit> recruitList = recruitClient.getRecruitList(userId).getData();
+        Long hrId = UserHolder.get().getId();
+
+        String indexKey = RedisKeys.HR_RECRUIT_IDS + ":" + hrId;
+        Set<String> recruitIds = redis.opsForSet().members(indexKey);
+
         List<ReceiveResume> ret = new ArrayList<>();
-        recruitList.forEach(recruit -> {
-            String receiveKey = Constant.getKey(RedisKeys.RESUME_RECEIVE, String.valueOf(recruit.getId()));
-            Map<String, String> entries = redisHash.entries(receiveKey);
-            entries.forEach((k, v) -> ret.add(JSONObject.parseObject(v, ReceiveResume.class)));
-        });
+
+        if (recruitIds != null) {
+            recruitIds.forEach(recruitIdStr -> {
+                String receiveKey = Constant.getKey(RedisKeys.RESUME_RECEIVE, recruitIdStr);
+                Map<String, String> entries = redisHash.entries(receiveKey);
+                entries.forEach((k, v) -> ret.add(JSONObject.parseObject(v, ReceiveResume.class)));
+            });
+        }
+
         ret.sort(Comparator.comparing(ReceiveResume::getRate).reversed());
         return new ReceiveInfo(ret);
     }
 
     public List<RecommendUser> getRecommendUser(List<CompanyAndJob> list) {
         List<RecommendUser> ret = new ArrayList<>();
-        list.forEach(c -> ret.add(new RecommendUser(c.getRecruitId(), esRepo.findByIntentionCompanyOrIntentionJob(c.getCompany(), c.getJob()))));
+        list.forEach(c -> ret.add(new RecommendUser(
+                c.getRecruitId(),
+                esRepo.findByIntentionCompanyOrIntentionJob(c.getCompany(), c.getJob())
+        )));
         return ret;
     }
 }

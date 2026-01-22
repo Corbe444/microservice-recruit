@@ -22,4 +22,6 @@ public class RedisKeys {
 
     /** 简历获取列表缓存 **/
     public static final String RESUME_RECEIVE = "resume_receive";
+
+    public static final String HR_RECRUIT_IDS = "HR_RECRUIT_IDS";
 }

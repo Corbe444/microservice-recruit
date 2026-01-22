@@ -2,7 +2,6 @@ package com.stalary.pf.recruit.service;
 
 import com.alibaba.fastjson.JSONObject;
 import com.stalary.lightmqclient.facade.Producer;
-import com.stalary.pf.recruit.client.ResumeClient;
 import com.stalary.pf.recruit.client.UserClient;
 import com.stalary.pf.recruit.data.constant.Constant;
 import com.stalary.pf.recruit.data.dto.*;
@@ -13,15 +12,13 @@ import com.stalary.pf.recruit.data.vo.*;
 import com.stalary.pf.recruit.exception.ExceptionThreadFactory;
 import com.stalary.pf.recruit.exception.MyException;
 import com.stalary.pf.recruit.exception.ResultEnum;
+import com.stalary.pf.recruit.provider.ResumeRateProvider;
 import com.stalary.pf.recruit.repo.CompanyRepo;
 import com.stalary.pf.recruit.repo.RecruitRepo;
 import com.stalary.pf.recruit.util.RecruitUtil;
-import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -48,8 +45,12 @@ public class RecruitService {
     @Resource
     private UserClient userClient;
 
+    /**
+     * ✅ Refactor: rimosso ResumeClient (pf-resume) e sostituito con provider locale
+     * che NON crea dipendenza tra microservizi.
+     */
     @Resource
-    private ResumeClient resumeClient;
+    private ResumeRateProvider resumeRateProvider;
 
     @Resource
     private Producer producer;
@@ -384,14 +385,19 @@ public class RecruitService {
                 }
             });
         });
-        // 获取所有候选人对应的简历匹配分数
-        List<ResumeRate> rateList = resumeClient.getRate(new GetResumeRate(getRateList)).getData();
+
+        /**
+         * ✅ Refactor: NON chiamiamo più pf-resume via Feign.
+         * Usiamo un provider locale (fallback o Redis ecc.)
+         */
+        List<ResumeRate> rateList = resumeRateProvider.getRates(new GetResumeRate(getRateList));
+
         recommendCandidate.forEach(r -> {
             Long recruitId = r.getRecruitId();
             // 过滤出当前职位对应的候选人分数
             List<ResumeRate> filterRateList = rateList
                     .stream()
-                    .filter(resume -> resume.getRecruitId().equals(recruitId))
+                    .filter(resume -> resume.getRecruitId() != null && resume.getRecruitId().equals(recruitId))
                     .collect(Collectors.toList());
             RecruitEntity recruit = recruitMap.get(recruitId);
             if (recruit != null) {
@@ -401,14 +407,14 @@ public class RecruitService {
                     // 选中当前候选人的分数
                     Optional<ResumeRate> resumeRate = filterRateList
                             .stream()
-                            .filter(rate -> rate.getUserId().equals(userInfo.getUserId()))
+                            .filter(rate -> rate.getUserId() != null && rate.getUserId().equals(userInfo.getUserId()))
                             .findFirst();
                     if (resumeRate.isPresent()) {
                         Candidate candidate = Candidate.init(userInfo);
                         Integer rate = resumeRate.get().getRate();
                         // 过滤掉rate为0的
-                        if (rate > 0) {
-                            candidate.setRate(resumeRate.get().getRate());
+                        if (rate != null && rate > 0) {
+                            candidate.setRate(rate);
                             candidateList.add(candidate);
                         }
                     }
@@ -480,5 +486,4 @@ public class RecruitService {
         String[] split = str.split(",");
         return Arrays.stream(split).collect(Collectors.toList());
     }
-
 }

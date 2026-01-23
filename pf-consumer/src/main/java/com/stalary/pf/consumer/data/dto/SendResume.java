@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
  * @field userId 用户id
  * @field recruitId 岗位id
  * @field title 岗位标题
+ * @field nickname 用户昵称（pf-consumer 从 pf-user 获取并传给 pf-resume）
  * @field time 投递时间
  **/
 @Data
@@ -25,6 +26,11 @@ public class SendResume {
     private Long recruitId;
 
     private String title;
+
+    /**
+     * 用户昵称：pf-consumer 从 pf-user 查询后填充
+     */
+    private String nickname;
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime time;

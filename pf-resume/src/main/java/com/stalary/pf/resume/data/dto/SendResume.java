@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
  * @field recruitId 岗位id
  * @field title 岗位标题
  * @field time 投递时间
+ * @field nickname 用户昵称（由上游服务填充，用于避免 pf-resume 依赖 pf-user）
  **/
 @Data
 @AllArgsConstructor
@@ -25,6 +26,11 @@ public class SendResume {
     private Long recruitId;
 
     private String title;
+
+    /**
+     * 用户昵称：由 pf-consumer 从 pf-user 查询并填充
+     */
+    private String nickname;
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime time;

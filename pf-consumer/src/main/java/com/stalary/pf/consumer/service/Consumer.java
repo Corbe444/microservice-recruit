@@ -17,7 +17,6 @@ import org.springframework.stereotype.Service;
 
 import static com.stalary.pf.consumer.data.constant.Constant.*;
 
-
 /**
  * Consumer
  *
@@ -82,10 +81,22 @@ public class Consumer implements MQConsumer {
         String message = messageDto.getValue();
         Long offset = messageDto.getOffset();
         log.info("receive message: topic: " + topic + " key: " + key + " message: " + message + " offset: " + offset);
+
         if (HANDLE_RESUME.equals(topic)) {
             SendResume resume = JSONObject.parseObject(message, SendResume.class);
+
+            // ★ FIX: enrich SendResume with nickname so pf-resume doesn't call pf-user
+            Long userId = resume.getUserId();
+            if (resume.getNickname() == null || resume.getNickname().trim().isEmpty()) {
+                UserInfo userInfo = userClient.getUserInfo(userId).getData();
+                if (userInfo != null) {
+                    resume.setNickname(userInfo.getNickname());
+                }
+            }
+
             // 处理投递简历
             resumeClient.handleResume(resume);
+
         } else if (SEND_RESUME.equals(topic)) {
             SendResume resume = JSONObject.parseObject(message, SendResume.class);
             // 存储投递的消息通知(系统发送)
@@ -95,6 +106,7 @@ public class Consumer implements MQConsumer {
             // 统计通知未读的数量
             int count = messageClient.getNotReadCount(userId).getData();
             pushClient.sendMessage(userId, "" + count);
+
         } else if (RECEIVE_RESUME.equals(topic)) {
             SendResume resume = JSONObject.parseObject(message, SendResume.class);
             // 存储收到简历的消息通知(系统发送)
@@ -110,8 +122,8 @@ public class Consumer implements MQConsumer {
             int count = messageClient.getNotReadCount(hrId).getData();
             pushClient.sendMessage(hrId, "" + count);
         }
+
         long endTime = System.currentTimeMillis();
         log.info("Consumer.time=" + (endTime - startTime));
     }
-
 }

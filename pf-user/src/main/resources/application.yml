@@ -2,7 +2,11 @@ server:
   port: 10015
   max-http-header-size: 8192
   user: http://usercenter.stalary.com
+
 spring:
+  application:
+    name: pf-user
+
   cloud:
     nacos:
       discovery:
@@ -11,11 +15,23 @@ spring:
       transport:
         port: 10003
         dashboard: sentinel.stalary.com
+
   zipkin:
     base-url: http://zipkin.stalary.com
+
   sleuth:
     sampler:
       probability: 1.0
+
 logging:
   level:
-    com.stalary.pf.user.client: DEBUG # feign日志
+    com.stalary.pf.user.client: DEBUG   # feign日志
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never

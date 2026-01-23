@@ -1,19 +1,27 @@
 server:
   port: 10014
   max-http-header-size: 8192
+
 spring:
+  application:
+    name: pf-consumer
+
   cloud:
     nacos:
       discovery:
         server-addr: nacos.stalary.com
+
   zipkin:
     base-url: http://zipkin.stalary.com
+
   sleuth:
     sampler:
       probability: 1.0
+
 logging:
   level:
     com.stalary.pf.consumer.client: DEBUG # feign日志
+
 com:
   stalary:
     lightmq:
@@ -22,3 +30,12 @@ com:
       group: master
       auto: true
       url: lightmq.stalary.com
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never

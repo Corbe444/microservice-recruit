@@ -6,7 +6,8 @@ server:
 spring:
   application:
     name: pf-gateway
-
+    apiVersion: v1
+    
   cloud:
     nacos:
       discovery:
